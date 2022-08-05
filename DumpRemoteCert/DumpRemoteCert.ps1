@@ -26,7 +26,7 @@ Param
     [Parameter(Mandatory=$true, Position=0)]
     [string]$Endpoint,
 
-    [Parameter(Mandatory=$false)]
+    [Parameter(Mandatory=$false, Position=1)]
     [int]$Port = 443
 )
 
