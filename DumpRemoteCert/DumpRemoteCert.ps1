@@ -29,7 +29,8 @@ Param
     [Parameter(Mandatory=$false, Position=1)]
     [int]$Port = 636,
 
-    [string]$CertOutputFile
+    [string]$CertOutputFile,
+    [switch]$SkipCertPopup
 )
 
 Process
@@ -85,7 +86,9 @@ Process
 
         Write-Host $output
 
-        Start-Process $CertOutputFile
+        if (!($SkipCertPopup.IsPresent)) {
+            Start-Process $CertOutputFile
+        }
 
         $true
     }
