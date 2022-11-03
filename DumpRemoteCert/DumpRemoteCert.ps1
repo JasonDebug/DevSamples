@@ -27,7 +27,9 @@ Param
     [string]$Endpoint,
 
     [Parameter(Mandatory=$false, Position=1)]
-    [int]$Port = 443
+    [int]$Port = 636,
+
+    [string]$CertOutputFile
 )
 
 Process
@@ -35,13 +37,17 @@ Process
     $dumpCertInfo = [System.Net.Security.RemoteCertificateValidationCallback]{
         param($sender, $certificate, $chain, $errors)
 
-        $temp = [System.IO.Path]::GetTempFileName().Replace(".tmp", ".cer")
+        if (!($CertOutputFile)) {
+            $CertOutputFile = [System.IO.Path]::GetTempFileName().Replace(".tmp", ".cer")
+        } else {
+            $CertOutputFile = [System.IO.Path]::GetFullPath($CertOutputFile)
+        }
 
         $x509 = $certificate -as [System.Security.Cryptography.X509Certificates.X509Certificate2]
         $bytes = $x509.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert)
-        [System.IO.File]::WriteAllBytes($temp, $bytes)
+        [System.IO.File]::WriteAllBytes($CertOutputFile, $bytes)
 
-        Write-Host "Certificate written to: $temp"
+        Write-Host "Certificate written to: $CertOutputFile"
 
         # At-a-glance info
         Write-Host "Subject: $($x509.Subject)"
@@ -57,7 +63,7 @@ Process
             Write-Host $sanStrings
         }
 
-        Write-Host "Running 'certutil -urlfetch -verify $temp'"
+        Write-Host "Running 'certutil -urlfetch -verify $CertOutputFile'"
 
         ## Start-Process output does not display correctly
         ## Export to file and read it in and we'll have broken newlines
@@ -67,7 +73,7 @@ Process
         $ProcessInfo.FileName = "certutil.exe"
         $ProcessInfo.RedirectStandardError = $true
         $ProcessInfo.RedirectStandardOutput = $true
-        $ProcessInfo.Arguments = "-urlfetch -verify $temp"
+        $ProcessInfo.Arguments = "-urlfetch -verify $CertOutputFile"
     
         $Process = New-Object System.Diagnostics.Process
         $Process.StartInfo = $ProcessInfo
@@ -79,7 +85,7 @@ Process
 
         Write-Host $output
 
-        Start-Process $temp
+        Start-Process $CertOutputFile
 
         $true
     }
