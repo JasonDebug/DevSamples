@@ -64,7 +64,7 @@ Process
             Write-Host $sanStrings
         }
 
-        Write-Host "Running 'certutil -urlfetch -verify $CertOutputFile'"
+        Write-Host "Running 'certutil -urlfetch -verify `"$CertOutputFile`"'"
 
         ## Start-Process output does not display correctly
         ## Export to file and read it in and we'll have broken newlines
