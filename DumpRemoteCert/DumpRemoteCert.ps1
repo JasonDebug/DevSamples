@@ -74,7 +74,7 @@ Process
         $ProcessInfo.FileName = "certutil.exe"
         $ProcessInfo.RedirectStandardError = $true
         $ProcessInfo.RedirectStandardOutput = $true
-        $ProcessInfo.Arguments = "-urlfetch -verify $CertOutputFile"
+        $ProcessInfo.Arguments = "-urlfetch -verify `"$CertOutputFile`""
     
         $Process = New-Object System.Diagnostics.Process
         $Process.StartInfo = $ProcessInfo
