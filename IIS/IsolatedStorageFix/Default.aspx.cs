@@ -1,3 +1,4 @@
+using MS.Internal.IO.Packaging;
 using System;
 using System.Text;
 
@@ -9,15 +10,16 @@ namespace IsolatedStorageFix
         {
             try
             {
-                // Update the process token DACL to include the application pool SID for all required applications that share IsolatedStorage
+                // Get the SIDs for the affected application pools
                 var IsolatedStorageTestPoolSid = GetApplicationPoolSid("IsolatedStorageTestPool");
                 var IsolatedStorageTest2 = GetApplicationPoolSid("IsolatedStorageTest2");
-                
+
+                // Update the process token DACL to include the application pool SID for all required applications that share IsolatedStorage
                 ProcessTokenDaclUpdater updater = new ProcessTokenDaclUpdater();
                 updater.AddSidToProcessTokenDacl(IsolatedStorageTestPoolSid);
                 updater.AddSidToProcessTokenDacl(IsolatedStorageTest2);
 
-                LogToPage("Process Token DACL:");
+                // Dump the process token DACL to the page
                 ProcessTokenDaclDumper procDumper = new ProcessTokenDaclDumper();
                 Response.Write(procDumper.OutputProcessTokenDacl());
 
@@ -27,6 +29,7 @@ namespace IsolatedStorageFix
 
                 // For illustrative purposes, do not dispose the stream so the mutex survives until GC
                 PackagingUtilities.CreateUserScopedIsolatedStorageFileStreamWithRandomName(3, out _filename);
+                LogToPage("Successfully created mutex.");
             }
             catch (Exception ex)
             {
