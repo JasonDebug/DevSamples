@@ -29,6 +29,7 @@ const char* GetAdapterType(ULONG IfType)
 	}
 }
 
+// Convert the physical adapter address to a human-readable hex format
 std::string GetMacAddress(BYTE* addr, ULONG length)
 {
 	std::string macAddress;
@@ -46,6 +47,8 @@ std::string GetMacAddress(BYTE* addr, ULONG length)
 	return macAddress;
 }
 
+// Displays adapter info similar to ipconfig
+// Returns true if IPv6 address is found
 bool DumpIPv6Config()
 {
 	// Check if IPv6 is supported
@@ -82,7 +85,6 @@ bool DumpIPv6Config()
 	PIP_ADAPTER_ADDRESSES pCurrAddresses = pAddresses;
 	while (pCurrAddresses)
 	{
-		// Print the output similar to ipconfig
 		std::wcout << GetAdapterType(pCurrAddresses->IfType) << " adapter " << pCurrAddresses->FriendlyName << ":" << std::endl << std::endl;
 		std::wcout << "   Media State . . . . . . . . . . . : " << (pCurrAddresses->OperStatus == IfOperStatusUp ? "Media disconnected" : "Media connected") << std::endl;
 		std::wcout << "   Connection-specific DNS Suffix  . : " << pCurrAddresses->DnsSuffix << std::endl;
@@ -90,6 +92,8 @@ bool DumpIPv6Config()
 		std::cout  << "   Physical Address. . . . . . . . . : " << GetMacAddress(pCurrAddresses->PhysicalAddress, pCurrAddresses->PhysicalAddressLength) << std::endl;
 		std::wcout << "   Adapter ID (GUID) . . . . . . . . : " << pCurrAddresses->AdapterName << std::endl;
 
+		// Assign luid to the loopback adapter so we can
+		// later assign the IPv6 address to it
 		if (pCurrAddresses->IfType == IF_TYPE_SOFTWARE_LOOPBACK)
 		{
 			luid = pCurrAddresses->Luid;
@@ -174,6 +178,7 @@ bool AddIPv6AddressToAdapter(const NET_LUID& luid, const char* ipv6Address, cons
 {
 	// REF: https://learn.microsoft.com/en-us/windows/win32/api/netioapi/nf-netioapi-createunicastipaddressentry
 
+	// Remove the address if it already exists. Illustration purposes really, simplifies the sample
 	DeleteIPv6AddressFromAdapter(luid, ipv6Address, prefixLength);
 
 	MIB_UNICASTIPADDRESS_ROW ipRow;
@@ -220,7 +225,7 @@ int main()
 	}
 
 	// Assign a new IPv6 address to the loopback adapter
-	// Note that 
+	// Note that luid is assigned in DumpIPv6Config()
 	const char* ipv6Address = "2001:db8::1234"; // Example IPv6 address
 	const char* prefixLength = "64"; // Example prefix length
 
