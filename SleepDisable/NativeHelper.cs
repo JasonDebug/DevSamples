@@ -1,4 +1,4 @@
-namespace SleepDisable
+﻿namespace SleepDisable
 {
     using System.Runtime.InteropServices;
 
@@ -44,6 +44,17 @@ namespace SleepDisable
             ref Guid subgroupOfPowerSettingsGuid,
             ref Guid powerSettingGuid,
             uint acValueIndex
+        );
+
+        // Import PowerReadACValueIndex from powrprof.dll
+        // https://learn.microsoft.com/en-us/windows/win32/api/powersetting/nf-powersetting-powerreadacvalue
+        [DllImport("powrprof.dll", SetLastError = true)]
+        public static extern uint PowerReadACValueIndex(
+            IntPtr RootPowerKey,
+            ref Guid SchemeGuid,
+            ref Guid SubGroupOfPowerSettingsGuid,
+            ref Guid PowerSettingGuid,
+            out uint AcValueIndex
         );
     }
 }
