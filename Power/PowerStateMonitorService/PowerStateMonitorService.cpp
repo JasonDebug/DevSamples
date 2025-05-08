@@ -15,6 +15,7 @@
 HPOWERNOTIFY g_PowerNotify = NULL;  // RegisterSuspendResumeNotification (hidden window)
 HPOWERNOTIFY g_PowerNotify2 = NULL; // RegisterSuspendResumeNotification (callback)
 HPOWERNOTIFY g_PowerNotify3 = NULL; // RegisterPowerSettingNotification (GUID_CONSOLE_DISPLAY_STATE)
+HPOWERNOTIFY g_PowerNotify4 = NULL; // RegisterPowerSettingNotification (GUID_CONSOLE_DISPLAY_STATE) using service handle
 SERVICE_STATUS g_ServiceStatus = { 0 };
 SERVICE_STATUS_HANDLE g_StatusHandle = NULL;
 HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
@@ -354,7 +355,16 @@ DWORD WINAPI ServiceWorkerThread(LPVOID lpParam)
         DEVICE_NOTIFY_WINDOW_HANDLE
     );
     if (g_PowerNotify3 == nullptr) {
-        LogEvent("Failed to register for GUID_CONSOLE_DISPLAY_STATE notifications: ", GetLastError());
+        LogEvent("Failed to register hidden window for GUID_CONSOLE_DISPLAY_STATE notifications: ", GetLastError());
+    }
+
+    g_PowerNotify4 = RegisterPowerSettingNotification(
+        g_StatusHandle,
+        &GUID_CONSOLE_DISPLAY_STATE,
+        DEVICE_NOTIFY_SERVICE_HANDLE
+    );
+    if (g_PowerNotify4 == nullptr) {
+        LogEvent("Failed to register service for GUID_CONSOLE_DISPLAY_STATE notifications: ", GetLastError());
     }
 
     MSG msg;
@@ -393,9 +403,14 @@ DWORD WINAPI ServiceWorkerThread(LPVOID lpParam)
     {
         UnregisterSuspendResumeNotification(g_PowerNotify3);
         g_PowerNotify3 = nullptr;
-        LogEvent("Unregistered GUID_CONSOLE_DISPLAY_STATE notifications.");
+        LogEvent("Unregistered hidden window GUID_CONSOLE_DISPLAY_STATE notifications.");
     }
-
+    if (g_PowerNotify4)
+    {
+        UnregisterSuspendResumeNotification(g_PowerNotify4);
+        g_PowerNotify4 = nullptr;
+        LogEvent("Unregistered service handle GUID_CONSOLE_DISPLAY_STATE notifications.");
+    }
 
     return 0;
 }
