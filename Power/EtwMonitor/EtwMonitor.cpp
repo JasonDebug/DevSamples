@@ -28,7 +28,9 @@ This sample demonstrates the following:
 #include <wchar.h> // wprintf
 #include <cstdarg> // for va_list, va_start, etc.
 #include <unordered_set>
+#include <powrprof.h>
 
+#pragma comment(lib, "PowrProf.lib")
 #pragma comment(lib, "tdh.lib") // Link against TDH.dll
 
 // Support building this sample using older versions of the Windows SDK:
@@ -875,6 +877,17 @@ void TraceConsumer()
     }
 }
 
+void CheckSleepStateSupport() {
+    SYSTEM_POWER_CAPABILITIES caps = {};
+    if (CallNtPowerInformation(SystemPowerCapabilities, nullptr, 0, &caps, sizeof(caps)) == ERROR_SUCCESS) {
+        LogPrintf(L"Supports S3 (classic sleep): %s\n", (caps.SystemS3 ? L"Yes" : L"No"));
+        LogPrintf(L"Supports S0 Low Power Idle (Modern Standby): %s\n", (caps.AoAc ? L"Yes" : L"No"));;
+    }
+    else {
+        LogPrintf(L"Failed to query power capabilities.\n");
+    }
+}
+
 int __cdecl wmain(int argc, _In_count_(argc) LPWSTR argv[])
 {
     // Open log file
@@ -891,6 +904,8 @@ int __cdecl wmain(int argc, _In_count_(argc) LPWSTR argv[])
 
     // Ensure we catch Ctrl+C
     SetConsoleCtrlHandler(ConsoleHandler, TRUE);
+
+    CheckSleepStateSupport();
 
     // Allocate and initialize properties (real-time, no logfile)
     size_t nameBytes = (wcslen(SESSION_NAME) + 1) * sizeof(WCHAR);
@@ -986,7 +1001,7 @@ int __cdecl wmain(int argc, _In_count_(argc) LPWSTR argv[])
     else
         LogPrintf(L"Session stopped.\n");
 
-    // Wait for consumer to exit
+    // Wait for consumer to exitgit statu
     consumer.join();
 
     // Close log file

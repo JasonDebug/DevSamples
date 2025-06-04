@@ -28,7 +28,9 @@ This sample demonstrates the following:
 #include <wchar.h> // wprintf
 #include <cstdarg> // for va_list, va_start, etc.
 #include <unordered_set>
+#include <powrprof.h>
 
+#pragma comment(lib, "PowrProf.lib")
 #pragma comment(lib, "tdh.lib") // Link against TDH.dll
 
 // Support building this sample using older versions of the Windows SDK:
@@ -51,10 +53,7 @@ HANDLE g_ServiceStopEvent = INVALID_HANDLE_VALUE;
 const TCHAR* g_ServiceName = L"EtwMonitorService";
 static constexpr LPCWSTR SESSION_NAME = L"EtwMonitorServiceSession";
 std::wofstream g_LogFile("EtwMonitorService.log", std::wios::app);
-//static TRACEHANDLE g_SessionHandle = 0;
-//static bool g_SessionCreated = false;
-static bool g_Exit = false;
-static bool g_isSleepEvent = false;
+static bool g_isSleepEvent = FALSE;
 
 // Mutually exclusive. If include has items, skip will not be used.
 static const std::unordered_set<USHORT> includeEventIds = {
@@ -104,6 +103,17 @@ void PrintFileTime(FILETIME const& ft)
         st.wMilliseconds);
 }
 
+void CheckSleepStateSupport() {
+    SYSTEM_POWER_CAPABILITIES caps = {};
+    if (CallNtPowerInformation(SystemPowerCapabilities, nullptr, 0, &caps, sizeof(caps)) == ERROR_SUCCESS) {
+        LogPrintf(L"Supports S3 (classic sleep): %s\n", (caps.SystemS3 ? L"Yes" : L"No"));
+        LogPrintf(L"Supports S0 Low Power Idle (Modern Standby): %s\n", (caps.AoAc ? L"Yes" : L"No"));;
+    }
+    else {
+        LogPrintf(L"Failed to query power capabilities.\n");
+    }
+}
+
 /*
 Decodes event data using TdhGetEventInformation and TdhFormatProperty. Prints
 the event information to stdout.
@@ -120,6 +130,13 @@ public:
     Sets up the TDH_CONTEXT array that will be used for decoding.
     */
     explicit DecoderContext()
+        : m_tdhContext{ {} },
+        m_tdhContextCount(0),
+        m_pointerSize(0),
+        m_indentLevel(0),
+        m_pEvent(nullptr),
+        m_pbData(nullptr),
+        m_pbDataEnd(nullptr)
     {
         TDH_CONTEXT* p = m_tdhContext;
 
@@ -357,7 +374,7 @@ private:
                     // EventName is a recent addition, so not all events have it.
                     // Many events use TaskName as an event identifier, so print it if present.
                     LogPrintf(L"  TaskName: %ls", TeiString(pTei->TaskNameOffset));
-                    //if (L"PowerAggregatorPdcSleepTransition" == TeiString(pTei->TaskNameOffset))
+
                     if (_wcsicmp(L"PowerAggregatorPdcSleepTransition", TeiString(pTei->TaskNameOffset)) == 0)
                     {
                         LogPrintf(L"  ***** Sleep / Wake Event *****");
@@ -405,7 +422,7 @@ private:
 
             // It's probably nul-terminated, but just in case, limit to cchData chars.
             LogPrintf(L"%.*ls\n", cchData, pchData);
-            //if (pchData == L"IsSleepEnter")
+
             if (_wcsicmp(L"IsSleepEnter", pchData) == 0)
             {
                 LogPrintf(L"  ***** Sleep Enter / Exit *****");
@@ -650,7 +667,7 @@ private:
                         // If the value isn't in the map, TdhFormatProperty treats it
                         // as an error instead of just putting the number in. We'll
                         // try again with no map.
-                        useMap = false;
+                        useMap = FALSE;
                         continue;
                     }
                     else if (status != ERROR_SUCCESS)
@@ -684,7 +701,7 @@ private:
     }
 
     /*
-    Returns true if the current event has the EVENT_HEADER_FLAG_STRING_ONLY
+    Returns TRUE if the current event has the EVENT_HEADER_FLAG_STRING_ONLY
     flag set.
     */
     bool IsStringEvent() const
@@ -693,7 +710,7 @@ private:
     }
 
     /*
-    Returns true if the current event has the EVENT_HEADER_FLAG_TRACE_MESSAGE
+    Returns TRUE if the current event has the EVENT_HEADER_FLAG_TRACE_MESSAGE
     flag set.
     */
     bool IsWppEvent() const
@@ -791,14 +808,15 @@ public:
 
     bool init()
     {
-        if (props_) return false;
+        if (props_) return FALSE;
 
-        bool sessionCreated = false;
+        bool sessionCreated = FALSE;
 
         // Allocate and initialize properties (real-time, no logfile)
         size_t nameBytes = (wcslen(SESSION_NAME) + 1) * sizeof(WCHAR);
         ULONG bufSize = sizeof(EVENT_TRACE_PROPERTIES) + (ULONG)nameBytes;
         auto props_ = (EVENT_TRACE_PROPERTIES*)malloc(bufSize);
+        if (!props_) return FALSE;
         ZeroMemory(props_, bufSize);
         props_->Wnode.BufferSize = bufSize;
         props_->Wnode.Flags = WNODE_FLAG_TRACED_GUID;
@@ -816,7 +834,7 @@ public:
         );
 
         if (status == ERROR_ALREADY_EXISTS) {
-            sessionCreated = false;
+            sessionCreated = FALSE;
             LogPrintf(L"  Session already existed; Recreating...\n");
 
             status = ControlTrace(
@@ -826,8 +844,8 @@ public:
                 EVENT_TRACE_CONTROL_STOP
             );
             if (status != ERROR_SUCCESS) {
-                LogPrintf(L"  Unable to stop session: %hs\n", status);
-                return false;
+                LogPrintf(L"  Unable to stop session:0x%08X\n", status);
+                return FALSE;
             }
 
             Sleep(100);
@@ -841,13 +859,13 @@ public:
         }
 
         if (status == ERROR_SUCCESS) {
-            sessionCreated = true;
+            sessionCreated = TRUE;
             LogPrintf(L"  Session created.\n");
         }
         else {
-            LogPrintf(L"  StartTrace failed: %hs\n", status);
+            LogPrintf(L"  StartTrace failed: 0x%08X\n", status);
             free(props_);
-            return false;
+            return FALSE;
         }
 
         // If new, enable your provider
@@ -863,11 +881,11 @@ public:
                 nullptr       // EnableParameters
             );
             if (status != ERROR_SUCCESS) {
-                LogPrintf(L"  EnableTraceEx2 failed: %hs\n", status);
+                LogPrintf(L"  EnableTraceEx2 failed: 0x%08X\n", status);
                 // stop if failed
                 ControlTrace(sessionHandle_, SESSION_NAME, props_, EVENT_TRACE_CONTROL_STOP);
                 free(props_);
-                return false;
+                return FALSE;
             }
 
             LogPrintf(L"  EnableTraceEx2 success.\n");
@@ -875,7 +893,7 @@ public:
 
         LogPrintf(L"  Init complete.\n");
         free(props_);
-        return true;
+        return TRUE;
     }
 
     void Stop()
@@ -889,7 +907,7 @@ public:
             EVENT_TRACE_CONTROL_STOP
         );
         if (status != ERROR_SUCCESS) {
-            LogPrintf(L"  Unable to stop session: %hs\n", status);
+            LogPrintf(L"  Unable to stop session: 0x%08X\n", status);
         }
 
         free(props_);
@@ -1044,7 +1062,7 @@ void WINAPI ServiceMain(DWORD argc, LPTSTR* argv)
         LogPrintf(L"  ETW init complete.\n");
         std::thread consumer(TraceConsumer);
 
-        LogPrintf(L"Service started.");
+        LogPrintf(L"  Service started.\n");
         ReportServiceStatus(SERVICE_RUNNING, NO_ERROR, 0);
 
         consumer.join();
@@ -1068,6 +1086,8 @@ int main()
     PrintFileTime(ftNow);
     LogPrintf(L" Starting service...\n");
 
+    CheckSleepStateSupport();
+
     SERVICE_TABLE_ENTRY ServiceTable[] = {
         { (LPWSTR)g_ServiceName, (LPSERVICE_MAIN_FUNCTION)ServiceMain },
         { NULL, NULL }
@@ -1075,7 +1095,7 @@ int main()
 
     if (!StartServiceCtrlDispatcher(ServiceTable))
     {
-        LogPrintf(L"  Failed to start service control dispatcher. Error: %hs\n", GetLastError());
+        LogPrintf(L"  Failed to start service control dispatcher. Error: 0x%08X\n", GetLastError());
         return GetLastError();
     }
 
