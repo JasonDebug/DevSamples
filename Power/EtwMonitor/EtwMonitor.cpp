@@ -59,7 +59,7 @@ static const std::unordered_set<USHORT> includeEventIds = {
     //536,
     //539,
     //561,
-    564     // PowerAggregatorPdcSleepTransition, probably all you need really
+    //564     // PowerAggregatorPdcSleepTransition, probably all you need really
 };
 static const std::unordered_set<USHORT> skipEventIds = {
     63,     // SystemTimeResolutionChange
@@ -120,6 +120,13 @@ public:
     Sets up the TDH_CONTEXT array that will be used for decoding.
     */
     explicit DecoderContext()
+        : m_tdhContext{ {} },
+        m_tdhContextCount(0),
+        m_pointerSize(0),
+        m_indentLevel(0),
+        m_pEvent(nullptr),
+        m_pbData(nullptr),
+        m_pbDataEnd(nullptr)
     {
         TDH_CONTEXT* p = m_tdhContext;
 
@@ -786,32 +793,8 @@ BOOL WINAPI ConsoleHandler(DWORD ctrlType)
 {
     if (ctrlType == CTRL_C_EVENT || ctrlType == CTRL_CLOSE_EVENT)
     {
-        g_Exit = true;
-        // Close log file
-        if (g_LogFile.is_open()) g_LogFile.close();
-
-        // Build minimal properties struct to stop by name
-        size_t nameBytes = (wcslen(SESSION_NAME) + 1) * sizeof(WCHAR);
-        ULONG bufSize = sizeof(EVENT_TRACE_PROPERTIES) + (ULONG)nameBytes;
-        auto props = (EVENT_TRACE_PROPERTIES*)malloc(bufSize);
-        ZeroMemory(props, bufSize);
-        props->Wnode.BufferSize = bufSize;
-        props->LoggerNameOffset = sizeof(EVENT_TRACE_PROPERTIES);
-        // copy session name just past the struct
-        wcscpy_s((WCHAR*)((BYTE*)props + props->LoggerNameOffset), wcslen(SESSION_NAME) + 1, SESSION_NAME);
-
-        ULONG status = ControlTrace(
-            g_SessionHandle,
-            SESSION_NAME,
-            props,
-            EVENT_TRACE_CONTROL_STOP
-        );
-        if (status != ERROR_SUCCESS)
-            wprintf(L"\nERROR: ControlTrace(stop) failed: %hs\n", status);
-        else
-            wprintf(L"Session stopped.\n");
-
-        free(props);
+        LogPrintf(L"\n***** Control-C detected *****\n\n");
+        g_Exit = TRUE;
         return TRUE;
     }
     return FALSE;
@@ -895,7 +878,6 @@ void TraceConsumer()
 int __cdecl wmain(int argc, _In_count_(argc) LPWSTR argv[])
 {
     // Open log file
-    //g_LogFile.open("etw_events.log", std::ios::out);
     if (!g_LogFile.is_open()) {
         wprintf(L"Failed to open log file.\n");
         return 1;
@@ -914,6 +896,7 @@ int __cdecl wmain(int argc, _In_count_(argc) LPWSTR argv[])
     size_t nameBytes = (wcslen(SESSION_NAME) + 1) * sizeof(WCHAR);
     ULONG bufSize = sizeof(EVENT_TRACE_PROPERTIES) + (ULONG)nameBytes;
     auto props = (EVENT_TRACE_PROPERTIES*)malloc(bufSize);
+    if (!props) return 1;
     ZeroMemory(props, bufSize);
     props->Wnode.BufferSize = bufSize;
     props->Wnode.Flags = WNODE_FLAG_TRACED_GUID;
@@ -941,7 +924,7 @@ int __cdecl wmain(int argc, _In_count_(argc) LPWSTR argv[])
             EVENT_TRACE_CONTROL_STOP
         );
         if (status != ERROR_SUCCESS) {
-            LogPrintf(L"Unable to stop session: %hs\n", status);
+            LogPrintf(L"Unable to stop session: 0x%08X\n", status);
             return 1;
         }
 
@@ -960,7 +943,7 @@ int __cdecl wmain(int argc, _In_count_(argc) LPWSTR argv[])
         LogPrintf(L"Session created.\n");
     }
     else {
-        LogPrintf(L"StartTrace failed: %hs\n", status);
+        LogPrintf(L"StartTrace failed: 0x%08X\n", status);
         free(props);
         return 1;
     }
@@ -978,7 +961,7 @@ int __cdecl wmain(int argc, _In_count_(argc) LPWSTR argv[])
             nullptr       // EnableParameters
         );
         if (status != ERROR_SUCCESS) {
-            LogPrintf(L"EnableTraceEx2 failed: %hs\n", status);
+            LogPrintf(L"EnableTraceEx2 failed: 0x%08X\n", status);
             // stop if failed
             ControlTrace(g_SessionHandle, SESSION_NAME, props, EVENT_TRACE_CONTROL_STOP);
             free(props);
@@ -986,15 +969,30 @@ int __cdecl wmain(int argc, _In_count_(argc) LPWSTR argv[])
         }
     }
 
-    free(props);
-
     // Start the consumer thread
     std::thread consumer(TraceConsumer);
 
     // Wait for Ctrl+C
     while (!g_Exit) Sleep(100);
 
+    status = ControlTrace(
+        g_SessionHandle,
+        SESSION_NAME,
+        props,
+        EVENT_TRACE_CONTROL_STOP
+    );
+    if (status != ERROR_SUCCESS)
+        LogPrintf(L"\nERROR: ControlTrace(stop) failed: 0x%08X\n", status);
+    else
+        LogPrintf(L"Session stopped.\n");
+
     // Wait for consumer to exit
     consumer.join();
+
+    // Close log file
+    if (g_LogFile.is_open()) g_LogFile.close();
+
+    free(props);
+
     return 0;
 }
