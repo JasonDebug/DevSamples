@@ -1,0 +1,60 @@
+## Ignore Visual Studio temporary files, build results, and user-specific files
+# Build results
+[Bb]in/
+[Oo]bj/
+build/
+out/
+Debug/
+Release/
+x64/
+x86/
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.VC.db
+*.VC.opendb
+
+# Visual Studio Code settings (if using VS Code)
+.vscode/
+
+# Visual Studio project files
+*.ncb
+*.aps
+*.cache
+*.ilk
+*.log
+*.pdb
+*.idb
+*.tlog
+
+# Auto-generated files
+*.iobj
+*.ipdb
+*.obj
+*.exe
+*.dll
+*.lib
+*.exp
+
+# Visual Studio folders
+.vs/
+
+# Windows thumbnail cache
+Thumbs.db
+
+# Crash dump files
+*.dmp
+
+# Source control bindings
+*.vssscc
+*.vspscc
+*.scc
+
+# Backup and temporary files
+*~
+*.bak
+*.tmp
+*.swp
