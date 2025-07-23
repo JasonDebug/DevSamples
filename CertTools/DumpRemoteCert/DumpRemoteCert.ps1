@@ -30,6 +30,7 @@ Param
     [int]$Port = 443,
 
     [string]$CertOutputFile,
+    [string]$LogToFile,
     [switch]$SkipCertPopup,
     
     ## https://learn.microsoft.com/en-us/dotnet/api/system.security.authentication.sslprotocols
@@ -41,6 +42,10 @@ Param
 
 Process
 {
+    if ($LogToFile) {
+        Start-Transcript -Path $LogToFile
+    }
+    
     $dumpCertInfo = [System.Net.Security.RemoteCertificateValidationCallback]{
         param($sender, $certificate, $chain, $errors)
 
@@ -132,5 +137,9 @@ Process
     {
         $ssl.Close()
         $client.Close()
+        
+        if ($LogToFile) {
+            Stop-Transcript
+        }
     }
 }
