@@ -40,10 +40,10 @@ namespace DumpRemoteCert
         {
             var allProtocols = Enum.GetNames(typeof(SslProtocols));
 
-            Console.WriteLine($"Usage: DumpRemoteCert.exe <endpoint[:port]> [port] [--ForceProtocolVersion {string.Join(", ", allProtocols)}]");
+            Console.WriteLine($"Usage: DumpRemoteCert.exe <endpoint[:port]> [port] [-ForceProtocolVersion {string.Join(", ", allProtocols)}]");
             Console.WriteLine("Examples:");
             Console.WriteLine("  DumpRemoteCert.exe example.com:443");
-            Console.WriteLine("  DumpRemoteCert.exe example.com 443 --ForceProtocolVersion Tls12,Tls13");
+            Console.WriteLine("  DumpRemoteCert.exe example.com 443 -ForceProtocolVersion Tls12,Tls13");
         }
 
         /*
@@ -94,7 +94,7 @@ namespace DumpRemoteCert
             {
                 var arg = argQueue.Dequeue();
 
-                if (arg.StartsWith("--ForceProtocolVersion", StringComparison.OrdinalIgnoreCase))
+                if (arg.StartsWith("-ForceProtocolVersion", StringComparison.OrdinalIgnoreCase))
                 {
                     string val = string.Empty;
 
@@ -118,7 +118,7 @@ namespace DumpRemoteCert
                     }
                     else
                     {
-                        Console.Error.WriteLine("Missing value for --ForceProtocolVersion");
+                        Console.Error.WriteLine("Missing value for -ForceProtocolVersion");
                         return;
                     }
                 }
