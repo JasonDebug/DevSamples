@@ -31,10 +31,58 @@ param(
   [string]$TenantId,
   [int]$Iterations = 10,
   [int]$PauseMs = 500,
-  [string]$OutputCsv = ".\entra-wire-latency.csv"
+  [string]$OutputCsv = ".\entra-wire-latency.csv",
+  [switch]$TestCert
 )
 
 $ErrorActionPreference = "Stop"
+$DumpRemoteCertScript = ".\DumpRemoteCert.ps1"
+
+function Resolve-LocalPath {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  if ([System.IO.Path]::IsPathRooted($Path)) {
+    return $Path
+  }
+
+  if ($PSScriptRoot) {
+    return (Join-Path $PSScriptRoot $Path)
+  }
+
+  return (Join-Path (Get-Location).Path $Path)
+}
+
+function Ensure-DumpRemoteCertScript {
+  param([Parameter(Mandatory = $true)][string]$ScriptPath)
+
+  if (Test-Path -LiteralPath $ScriptPath) {
+    return
+  }
+
+  $downloadUrl = "https://raw.githubusercontent.com/JasonDebug/DevSamples/main/Security/Certificates/DumpRemoteCert/DumpRemoteCert.ps1"
+  Write-Host "DumpRemoteCert script not found. Downloading from $downloadUrl"
+
+  $scriptDir = Split-Path -Parent $ScriptPath
+  if (-not (Test-Path -LiteralPath $scriptDir)) {
+    New-Item -Path $scriptDir -ItemType Directory -Force | Out-Null
+  }
+
+  Invoke-WebRequest -Uri $downloadUrl -OutFile $ScriptPath -UseBasicParsing
+  Write-Host "Saved DumpRemoteCert script to: $ScriptPath"
+}
+
+function Invoke-CertTest {
+  param(
+    [Parameter(Mandatory = $true)][string]$ScriptPath,
+    [Parameter(Mandatory = $true)][string[]]$Hosts
+  )
+
+  $uniqueHosts = $Hosts | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
+  foreach ($HostName in $uniqueHosts) {
+    Write-Host "Running cert test for host: $HostName"
+    & $ScriptPath -Endpoint $HostName
+  }
+}
 
 function Measure-DnsMs {
   param([string]$HostName)
@@ -72,20 +120,23 @@ function Measure-TlsHandshakeMs {
   param([string]$HostName, [int]$Port = 443, [int]$TimeoutMs = 10000)
 
   $tcp = New-Object System.Net.Sockets.TcpClient
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
   try {
+    $tcp.ReceiveTimeout = $TimeoutMs
+    $tcp.SendTimeout = $TimeoutMs
+
     $task = $tcp.ConnectAsync($HostName, $Port)
     if (-not $task.Wait($TimeoutMs)) {
       throw "TCP connect timeout before TLS after $TimeoutMs ms"
     }
 
     $netStream = $tcp.GetStream()
+    $netStream.ReadTimeout = $TimeoutMs
+    $netStream.WriteTimeout = $TimeoutMs
     $ssl = New-Object System.Net.Security.SslStream($netStream, $false, { $true })
 
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    $authTask = $ssl.AuthenticateAsClientAsync($HostName)
-    if (-not $authTask.Wait($TimeoutMs)) {
-      throw "TLS handshake timeout after $TimeoutMs ms"
-    }
+    # Use synchronous handshake to avoid Task.Wait aggregate wrapper behavior.
+    $ssl.AuthenticateAsClient($HostName)
     $sw.Stop()
 
     $ssl.Dispose()
@@ -94,8 +145,9 @@ function Measure-TlsHandshakeMs {
 
     return @{ Success = $true; Ms = $sw.Elapsed.TotalMilliseconds; Error = $null }
   } catch {
+    $sw.Stop()
     $tcp.Dispose()
-    return @{ Success = $false; Ms = $null; Error = $_.Exception.Message }
+    return @{ Success = $false; Ms = $sw.Elapsed.TotalMilliseconds; Error = $_.Exception.Message }
   }
 }
 
@@ -199,6 +251,16 @@ if (-not $jwksUrl) {
 
 Write-Host "Metadata URL: $metadataUrl"
 Write-Host "JWKS URL: $jwksUrl"
+
+if ($TestCert) {
+  $dumpScriptPath = Resolve-LocalPath -Path $DumpRemoteCertScript
+  Ensure-DumpRemoteCertScript -ScriptPath $dumpScriptPath
+
+  $metadataHost = ([System.Uri]$metadataUrl).Host
+  $jwksHost = ([System.Uri]$jwksUrl).Host
+  Invoke-CertTest -ScriptPath $dumpScriptPath -Hosts @($metadataHost, $jwksHost)
+}
+
 Write-Host "Running $Iterations iterations..."
 
 $results = New-Object System.Collections.Generic.List[object]
@@ -223,22 +285,51 @@ Write-Host ""
 Write-Host "Saved raw results to $OutputCsv"
 Write-Host ""
 
+function Get-P95Value {
+  param([object[]]$Values)
+
+  if (-not $Values -or $Values.Count -eq 0) {
+    return $null
+  }
+
+  $sorted = $Values | Sort-Object
+  $index = [math]::Floor(($sorted.Count - 1) * 0.95)
+  return [math]::Round([double]$sorted[$index], 2)
+}
+
 $summary = $results |
   Group-Object EndpointName |
   ForEach-Object {
     $name = $_.Name
-    $ok = $_.Group | Where-Object { $_.HttpSuccess -eq $true -and $_.HttpTotalMs -ne $null }
+    $group = $_.Group
+    $okHttp = $group | Where-Object { $_.HttpSuccess -eq $true -and $_.HttpTotalMs -ne $null }
+    $okDns = $group | Where-Object { $_.DnsSuccess -eq $true -and $_.DnsMs -ne $null }
+    $okTcp = $group | Where-Object { $_.TcpSuccess -eq $true -and $_.TcpConnectMs -ne $null }
+    $okTls = $group | Where-Object { $_.TlsSuccess -eq $true -and $_.TlsHandshakeMs -ne $null }
+
     [PSCustomObject]@{
-      Endpoint = $name
-      Samples  = $ok.Count
-      AvgTtfbMs = if ($ok.Count) { [math]::Round((($ok | Measure-Object HttpTtfbMs -Average).Average), 2) } else { $null }
-      P95TtfbMs = if ($ok.Count) { [math]::Round((($ok | Sort-Object HttpTtfbMs)[[math]::Floor(($ok.Count - 1) * 0.95)].HttpTtfbMs), 2) } else { $null }
-      AvgTotalMs = if ($ok.Count) { [math]::Round((($ok | Measure-Object HttpTotalMs -Average).Average), 2) } else { $null }
-      P95TotalMs = if ($ok.Count) { [math]::Round((($ok | Sort-Object HttpTotalMs)[[math]::Floor(($ok.Count - 1) * 0.95)].HttpTotalMs), 2) } else { $null }
+      Endpoint       = $name
+      Samples        = $okHttp.Count
+      AvgDnsMs       = if ($okDns.Count) { [math]::Round((($okDns | Measure-Object DnsMs -Average).Average), 2) } else { $null }
+      P95DnsMs       = if ($okDns.Count) { Get-P95Value -Values ($okDns | Select-Object -ExpandProperty DnsMs) } else { $null }
+      AvgTcpMs       = if ($okTcp.Count) { [math]::Round((($okTcp | Measure-Object TcpConnectMs -Average).Average), 2) } else { $null }
+      P95TcpMs       = if ($okTcp.Count) { Get-P95Value -Values ($okTcp | Select-Object -ExpandProperty TcpConnectMs) } else { $null }
+      AvgTlsMs       = if ($okTls.Count) { [math]::Round((($okTls | Measure-Object TlsHandshakeMs -Average).Average), 2) } else { $null }
+      P95TlsMs       = if ($okTls.Count) { Get-P95Value -Values ($okTls | Select-Object -ExpandProperty TlsHandshakeMs) } else { $null }
+      AvgTtfbMs      = if ($okHttp.Count) { [math]::Round((($okHttp | Measure-Object HttpTtfbMs -Average).Average), 2) } else { $null }
+      P95TtfbMs      = if ($okHttp.Count) { Get-P95Value -Values ($okHttp | Select-Object -ExpandProperty HttpTtfbMs) } else { $null }
+      AvgTotalMs     = if ($okHttp.Count) { [math]::Round((($okHttp | Measure-Object HttpTotalMs -Average).Average), 2) } else { $null }
+      P95TotalMs     = if ($okHttp.Count) { Get-P95Value -Values ($okHttp | Select-Object -ExpandProperty HttpTotalMs) } else { $null }
     }
   }
 
 Write-Host "Samples    = number of successful HTTP requests with valid timing data"
+Write-Host "AvgDnsMs   = average DNS resolution time in milliseconds"
+Write-Host "P95DnsMs   = 95th percentile DNS resolution time in milliseconds"
+Write-Host "AvgTcpMs   = average TCP connect time in milliseconds"
+Write-Host "P95TcpMs   = 95th percentile TCP connect time in milliseconds"
+Write-Host "AvgTlsMs   = average TLS handshake time in milliseconds"
+Write-Host "P95TlsMs   = 95th percentile TLS handshake time in milliseconds"
 Write-Host "AvgTtfbMs  = average time to first byte in milliseconds"
 Write-Host "P95TtfbMs  = 95th percentile time to first byte in milliseconds"
 Write-Host "AvgTotalMs = average total time in milliseconds"
