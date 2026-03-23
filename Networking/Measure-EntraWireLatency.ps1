@@ -240,13 +240,27 @@ function Test-Endpoint {
 }
 
 $metadataUrl = "https://login.microsoftonline.com/$TenantId/v2.0/.well-known/openid-configuration"
+$retries = 3
 
-Write-Host "Fetching metadata once to discover jwks_uri..."
-$metaObj = Invoke-RestMethod -Uri $metadataUrl -Method Get -TimeoutSec 30
-$jwksUrl = $metaObj.jwks_uri
+Write-Host "Fetching metadata to discover keyset URI..."
+for ($attempt = 1; $attempt -le $retries; $attempt++) {
+  try {
+    $metaObj = Invoke-RestMethod -Uri $metadataUrl -Method Get -TimeoutSec 30 -ErrorAction Stop
+    $jwksUrl = $metaObj.jwks_uri
+
+    if ($metaObj -and $metaObj.jwks_uri) {
+        break
+    }
+  }
+  catch {
+    Write-Host "Attempt $attempt/$retries failed:" -ForegroundColor Yellow
+    Write-Host "Error: $($_.Exception.Message)"
+  }
+}
 
 if (-not $jwksUrl) {
-  throw "Could not discover jwks_uri from metadata."
+  Write-Host "Could not discover keyset URI from metadata. Exiting." -ForegroundColor Red
+  return
 }
 
 Write-Host "Metadata URL: $metadataUrl"
